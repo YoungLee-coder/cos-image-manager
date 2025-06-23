@@ -15,6 +15,12 @@ interface ImageFile {
 interface Settings {
   customDomain: string;
   useCustomDomain: boolean;
+  cosConfig: {
+    secretId: string;
+    secretKey: string;
+    bucket: string;
+    region: string;
+  };
 }
 
 type ViewMode = 'grid' | 'list';
@@ -28,7 +34,21 @@ export default function Home() {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [newFileName, setNewFileName] = useState('');
   const [showSettings, setShowSettings] = useState(false);
-  const [settings, setSettings] = useState<Settings>({ customDomain: '', useCustomDomain: false });
+  const [settings, setSettings] = useState<Settings>({ 
+    customDomain: '', 
+    useCustomDomain: false,
+    cosConfig: {
+      secretId: '',
+      secretKey: '',
+      bucket: '',
+      region: 'ap-guangzhou'
+    }
+  });
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPasswordSection, setShowPasswordSection] = useState(false);
+  const [showCosSection, setShowCosSection] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [previewImage, setPreviewImage] = useState<ImageFile | null>(null);
   const [showPreview, setShowPreview] = useState(false);
@@ -179,12 +199,46 @@ export default function Home() {
 
   const handleSaveSettings = async () => {
     try {
+      // 验证密码更改
+      if (showPasswordSection && (currentPassword || newPassword || confirmPassword)) {
+        if (!currentPassword || !newPassword || !confirmPassword) {
+          showMessage('请填写完整的密码信息', 'error');
+          return;
+        }
+        
+        if (newPassword !== confirmPassword) {
+          showMessage('新密码与确认密码不一致', 'error');
+          return;
+        }
+
+        if (newPassword.length < 6) {
+          showMessage('新密码长度至少需要6位', 'error');
+          return;
+        }
+      }
+
+      const requestData: Record<string, unknown> = {
+        customDomain: settings.customDomain,
+        useCustomDomain: settings.useCustomDomain,
+      };
+
+      // 添加COS配置（如果有更改）
+      if (showCosSection) {
+        requestData.cosConfig = settings.cosConfig;
+      }
+
+      // 添加密码更改（如果有）
+      if (showPasswordSection && currentPassword && newPassword) {
+        requestData.currentPassword = currentPassword;
+        requestData.newPassword = newPassword;
+      }
+
       const response = await fetch('/api/settings', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(settings),
+        body: JSON.stringify(requestData),
       });
 
       const data = await response.json();
@@ -192,6 +246,12 @@ export default function Home() {
       if (data.success) {
         showMessage('设置保存成功', 'success');
         setShowSettings(false);
+        // 清空密码输入
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+        setShowPasswordSection(false);
+        setShowCosSection(false);
         // 重新加载图片列表以应用新的域名设置
         checkAuthAndLoadImages();
       } else {
@@ -637,9 +697,9 @@ export default function Home() {
         {/* 设置弹窗 */}
         {showSettings && (
           <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-            <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div className="relative top-10 mx-auto p-5 border max-w-2xl shadow-lg rounded-md bg-white">
               <div className="mt-3">
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center justify-between mb-6">
                   <h3 className="text-lg font-medium text-gray-900">系统设置</h3>
                   <button
                     onClick={() => setShowSettings(false)}
@@ -649,41 +709,200 @@ export default function Home() {
                   </button>
                 </div>
                 
-                <div className="space-y-4">
-                  <div>
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={settings.useCustomDomain}
-                        onChange={(e) => setSettings({ ...settings, useCustomDomain: e.target.checked })}
-                        className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <span className="text-sm font-medium text-gray-700">使用自定义域名</span>
-                    </label>
-                    <p className="text-xs text-gray-500 mt-1">
-                      启用后将使用自定义域名生成图片链接，否则使用腾讯云默认域名
-                    </p>
+                <div className="space-y-6">
+                  {/* 域名设置 */}
+                  <div className="border-b border-gray-200 pb-6">
+                    <h4 className="text-md font-medium text-gray-900 mb-4">域名设置</h4>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="flex items-center">
+                          <input
+                            type="checkbox"
+                            checked={settings.useCustomDomain}
+                            onChange={(e) => setSettings({ ...settings, useCustomDomain: e.target.checked })}
+                            className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-sm font-medium text-gray-700">使用自定义域名</span>
+                        </label>
+                        <p className="text-xs text-gray-500 mt-1">
+                          启用后将使用自定义域名生成图片链接，否则使用腾讯云默认域名
+                        </p>
+                      </div>
+
+                      {settings.useCustomDomain && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            自定义域名
+                          </label>
+                          <input
+                            type="text"
+                            value={settings.customDomain}
+                            onChange={(e) => setSettings({ ...settings, customDomain: e.target.value })}
+                            placeholder="例如：img.example.com"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">
+                            请输入已绑定到 COS 存储桶的自定义域名（不包含 https://）
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
-                  {settings.useCustomDomain && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        自定义域名
-                      </label>
-                      <input
-                        type="text"
-                        value={settings.customDomain}
-                        onChange={(e) => setSettings({ ...settings, customDomain: e.target.value })}
-                        placeholder="例如：img.example.com"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        请输入已绑定到 COS 存储桶的自定义域名（不包含 https://）
-                      </p>
+                  {/* COS配置 */}
+                  <div className="border-b border-gray-200 pb-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-md font-medium text-gray-900">COS 存储配置</h4>
+                      <button
+                        onClick={() => setShowCosSection(!showCosSection)}
+                        className="text-sm text-blue-600 hover:text-blue-800"
+                      >
+                        {showCosSection ? '隐藏' : '修改配置'}
+                      </button>
                     </div>
-                  )}
+                    
+                    {showCosSection && (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Secret ID
+                            </label>
+                            <input
+                              type="text"
+                              value={settings.cosConfig.secretId}
+                              onChange={(e) => setSettings({ 
+                                ...settings, 
+                                cosConfig: { ...settings.cosConfig, secretId: e.target.value }
+                              })}
+                              placeholder="请输入 Secret ID"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Secret Key
+                            </label>
+                            <input
+                              type="password"
+                              value={settings.cosConfig.secretKey}
+                              onChange={(e) => setSettings({ 
+                                ...settings, 
+                                cosConfig: { ...settings.cosConfig, secretKey: e.target.value }
+                              })}
+                              placeholder="请输入 Secret Key"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              存储桶名称
+                            </label>
+                            <input
+                              type="text"
+                              value={settings.cosConfig.bucket}
+                              onChange={(e) => setSettings({ 
+                                ...settings, 
+                                cosConfig: { ...settings.cosConfig, bucket: e.target.value }
+                              })}
+                              placeholder="例如：my-bucket-1234567890"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              地域
+                            </label>
+                            <select
+                              value={settings.cosConfig.region}
+                              onChange={(e) => setSettings({ 
+                                ...settings, 
+                                cosConfig: { ...settings.cosConfig, region: e.target.value }
+                              })}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                              <option value="ap-beijing">北京 (ap-beijing)</option>
+                              <option value="ap-shanghai">上海 (ap-shanghai)</option>
+                              <option value="ap-guangzhou">广州 (ap-guangzhou)</option>
+                              <option value="ap-chengdu">成都 (ap-chengdu)</option>
+                              <option value="ap-nanjing">南京 (ap-nanjing)</option>
+                              <option value="ap-hongkong">香港 (ap-hongkong)</option>
+                              <option value="ap-singapore">新加坡 (ap-singapore)</option>
+                              <option value="ap-tokyo">东京 (ap-tokyo)</option>
+                              <option value="na-siliconvalley">硅谷 (na-siliconvalley)</option>
+                              <option value="na-toronto">多伦多 (na-toronto)</option>
+                              <option value="eu-frankfurt">法兰克福 (eu-frankfurt)</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
-                  <div className="flex items-center justify-end space-x-3 mt-6">
+                  {/* 密码更改 */}
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-md font-medium text-gray-900">密码设置</h4>
+                      <button
+                        onClick={() => setShowPasswordSection(!showPasswordSection)}
+                        className="text-sm text-blue-600 hover:text-blue-800"
+                      >
+                        {showPasswordSection ? '取消' : '更改密码'}
+                      </button>
+                    </div>
+                    
+                    {showPasswordSection && (
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            当前密码
+                          </label>
+                          <input
+                            type="password"
+                            value={currentPassword}
+                            onChange={(e) => setCurrentPassword(e.target.value)}
+                            placeholder="请输入当前密码"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
+                        </div>
+                        
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              新密码
+                            </label>
+                            <input
+                              type="password"
+                              value={newPassword}
+                              onChange={(e) => setNewPassword(e.target.value)}
+                              placeholder="请输入新密码（至少6位）"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              确认新密码
+                            </label>
+                            <input
+                              type="password"
+                              value={confirmPassword}
+                              onChange={(e) => setConfirmPassword(e.target.value)}
+                              placeholder="请再次输入新密码"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-end space-x-3 pt-6">
                     <button
                       onClick={() => setShowSettings(false)}
                       className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"

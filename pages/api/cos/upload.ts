@@ -4,15 +4,9 @@ import jwt from 'jsonwebtoken';
 import formidable from 'formidable';
 import fs from 'fs';
 import path from 'path';
+import { decryptSensitiveConfig } from '../../../lib/encryption';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const SETTINGS_FILE = path.join(process.cwd(), 'settings.json');
-
-// 创建 COS 实例
-const cos = new COS({
-  SecretId: process.env.COS_SECRET_ID!,
-  SecretKey: process.env.COS_SECRET_KEY!,
-});
 
 // 读取设置
 function readSettings() {
@@ -28,6 +22,15 @@ function readSettings() {
   return {
     customDomain: '',
     useCustomDomain: false,
+    password: 'admin123',
+    jwtSecret: 'your-jwt-secret-key-here',
+    cosConfig: {
+      secretId: '',
+      secretKey: '',
+      bucket: '',
+      region: 'ap-guangzhou'
+    },
+    isInitialized: false
   };
 }
 
@@ -37,14 +40,15 @@ function verifyAuth(req: NextApiRequest): boolean {
   if (!token) return false;
 
   try {
-    jwt.verify(token, JWT_SECRET);
+    const settings = readSettings();
+    jwt.verify(token, settings.jwtSecret);
     return true;
   } catch {
     return false;
   }
 }
 
-// 禁用默认的 body 解析，使用 formidable 处理文件上传
+// 配置文件上传处理
 export const config = {
   api: {
     bodyParser: false,
@@ -62,6 +66,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
+    const rawSettings = readSettings();
+    const settings = decryptSensitiveConfig(rawSettings, rawSettings.jwtSecret);
+    
+    // 检查COS配置
+    if (!settings.cosConfig?.secretId || !settings.cosConfig?.secretKey || !settings.cosConfig?.bucket) {
+      return res.status(500).json({ message: 'COS配置不完整，请在设置中配置' });
+    }
+
+    // 创建 COS 实例
+    const cos = new COS({
+      SecretId: settings.cosConfig.secretId,
+      SecretKey: settings.cosConfig.secretKey,
+    });
+
     // 解析表单数据
     const form = formidable({
       maxFileSize: 10 * 1024 * 1024, // 最大 10MB
@@ -88,19 +106,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const fileContent = fs.readFileSync(file.filepath);
 
     // 上传到 COS
-    const result = await cos.putObject({
-      Bucket: process.env.COS_BUCKET!,
-      Region: process.env.COS_REGION!,
+    await cos.putObject({
+      Bucket: settings.cosConfig.bucket,
+      Region: settings.cosConfig.region,
       Key: fileName,
       Body: fileContent,
       ContentType: file.mimetype || 'application/octet-stream',
     });
 
-    // 读取域名设置并生成访问URL
-    const settings = readSettings();
+    // 生成访问URL
     const baseUrl = settings.useCustomDomain && settings.customDomain
       ? `https://${settings.customDomain}`
-      : `https://${process.env.COS_BUCKET}.cos.${process.env.COS_REGION}.myqcloud.com`;
+      : `https://${settings.cosConfig.bucket}.cos.${settings.cosConfig.region}.myqcloud.com`;
     const url = `${baseUrl}/${fileName}`;
 
     // 清理临时文件
@@ -114,9 +131,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         url: url,
         size: file.size,
         originalName: originalName,
-        etag: result.ETag?.replace(/"/g, ''),
-      }
+      },
     });
+
   } catch (error) {
     console.error('文件上传失败:', error);
     return res.status(500).json({ 

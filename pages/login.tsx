@@ -8,10 +8,20 @@ export default function Login() {
   const [error, setError] = useState('');
   const router = useRouter();
 
-  // 检查是否已登录
+  // 检查是否已登录和初始化状态
   useEffect(() => {
-    const checkAuth = async () => {
+    const checkAuthAndInit = async () => {
       try {
+        // 先检查是否需要初始化
+        const initResponse = await fetch('/api/setup/check');
+        const initData = await initResponse.json();
+        
+        if (!initData.isInitialized) {
+          router.push('/setup');
+          return;
+        }
+
+        // 检查是否已登录
         const response = await fetch('/api/cos/list');
         if (response.ok) {
           router.push('/');
@@ -20,7 +30,7 @@ export default function Login() {
         // 未登录，继续显示登录页面
       }
     };
-    checkAuth();
+    checkAuthAndInit();
   }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -41,6 +51,8 @@ export default function Login() {
 
       if (data.success) {
         router.push('/');
+      } else if (data.redirect) {
+        router.push(data.redirect);
       } else {
         setError(data.message || '登录失败');
       }

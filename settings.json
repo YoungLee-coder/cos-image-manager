@@ -1,4 +1,13 @@
 {
-  "customDomain": "cos.younglee.cn",
-  "useCustomDomain": true
+  "customDomain": "",
+  "useCustomDomain": false,
+  "password": "$2b$10$VDBmLNMdW3/5AetKS4w9S.QDSkpF/sDVGqql23VwKqd/R.679pjya",
+  "jwtSecret": "e5e0740275a29cabc4e220418e9dd2aec25af51c9eefe1628e4682e173fee04f4e2ef46a412adf7a22f4bca477c0a988c00f4cd249d382406f80999dc4086ffa",
+  "cosConfig": {
+    "secretId": "423b617ca7caeab05efebaa14360c0f5:5c8fdd82810975c23759f168e462f049dcb4c5400146db13fddbe3e21caaa950823fba1f836524c1ecca2abefe366702",
+    "secretKey": "d99bdd7aab700b1315e6232edfa8dda0:aae95bebf5ee647d217ada7cf65669157afbb7e23e06ccea565c9f6128b0994453ae81cace038f73a638938440069b88",
+    "bucket": "younglee-1258667063",
+    "region": "ap-chengdu"
+  },
+  "isInitialized": true
 }

@@ -3,15 +3,9 @@ import COS from 'cos-nodejs-sdk-v5';
 import jwt from 'jsonwebtoken';
 import fs from 'fs';
 import path from 'path';
+import { decryptSensitiveConfig } from '../../../lib/encryption';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const SETTINGS_FILE = path.join(process.cwd(), 'settings.json');
-
-// 创建 COS 实例
-const cos = new COS({
-  SecretId: process.env.COS_SECRET_ID!,
-  SecretKey: process.env.COS_SECRET_KEY!,
-});
 
 // 读取设置
 function readSettings() {
@@ -27,6 +21,15 @@ function readSettings() {
   return {
     customDomain: '',
     useCustomDomain: false,
+    password: 'admin123',
+    jwtSecret: 'your-jwt-secret-key-here',
+    cosConfig: {
+      secretId: '',
+      secretKey: '',
+      bucket: '',
+      region: 'ap-guangzhou'
+    },
+    isInitialized: false
   };
 }
 
@@ -36,7 +39,8 @@ function verifyAuth(req: NextApiRequest): boolean {
   if (!token) return false;
 
   try {
-    jwt.verify(token, JWT_SECRET);
+    const settings = readSettings();
+    jwt.verify(token, settings.jwtSecret);
     return true;
   } catch {
     return false;
@@ -54,11 +58,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
+    const rawSettings = readSettings();
+    const settings = decryptSensitiveConfig(rawSettings, rawSettings.jwtSecret);
+    
+    // 检查COS配置
+    if (!settings.cosConfig?.secretId || !settings.cosConfig?.secretKey || !settings.cosConfig?.bucket) {
+      return res.status(500).json({ message: 'COS配置不完整，请在设置中配置' });
+    }
+
+    // 创建 COS 实例
+    const cos = new COS({
+      SecretId: settings.cosConfig.secretId,
+      SecretKey: settings.cosConfig.secretKey,
+    });
+
     const { prefix = '', maxKeys = 1000 } = req.query;
 
     const result = await cos.getBucket({
-      Bucket: process.env.COS_BUCKET!,
-      Region: process.env.COS_REGION!,
+      Bucket: settings.cosConfig.bucket,
+      Region: settings.cosConfig.region,
       Prefix: prefix as string,
       MaxKeys: parseInt(maxKeys as string),
     });
@@ -70,11 +88,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return extension && imageExtensions.includes('.' + extension);
     }) || [];
 
-    // 读取域名设置
-    const settings = readSettings();
+    // 生成访问URL
     const baseUrl = settings.useCustomDomain && settings.customDomain
       ? `https://${settings.customDomain}`
-      : `https://${process.env.COS_BUCKET}.cos.${process.env.COS_REGION}.myqcloud.com`;
+      : `https://${settings.cosConfig.bucket}.cos.${settings.cosConfig.region}.myqcloud.com`;
 
     // 格式化响应数据
     const formattedImages = images.map(item => ({
