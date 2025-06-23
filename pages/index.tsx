@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Image from 'next/image';
-import { Upload, Trash2, Copy, LogOut, RefreshCw, Image as ImageIcon, Edit3, Settings, Save, X, Grid3X3, List, MoreVertical, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Upload, Trash2, Copy, LogOut, RefreshCw, Image as ImageIcon, Edit3, Settings, Save, X, Grid3X3, List, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface ImageFile {
   key: string;
@@ -32,7 +32,6 @@ export default function Home() {
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [previewImage, setPreviewImage] = useState<ImageFile | null>(null);
   const [showPreview, setShowPreview] = useState(false);
-  const [loadedImages, setLoadedImages] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
@@ -263,10 +262,7 @@ export default function Home() {
     return `${originalUrl}?imageMogr2/thumbnail/!${size}x${size}r/gravity/center/crop/${size}x${size}`;
   };
 
-  // 标记图片已加载
-  const markImageLoaded = (imageKey: string) => {
-    setLoadedImages(prev => new Set([...prev, imageKey]));
-  };
+
 
   const openPreview = (image: ImageFile) => {
     setPreviewImage(image);
@@ -278,7 +274,7 @@ export default function Home() {
     setPreviewImage(null);
   };
 
-  const navigatePreview = (direction: 'prev' | 'next') => {
+  const navigatePreview = useCallback((direction: 'prev' | 'next') => {
     if (!previewImage) return;
     
     const currentIndex = images.findIndex(img => img.key === previewImage.key);
@@ -291,7 +287,7 @@ export default function Home() {
     }
     
     setPreviewImage(images[newIndex]);
-  };
+  }, [previewImage, images]);
 
   // 键盘事件处理
   useEffect(() => {
@@ -313,7 +309,7 @@ export default function Home() {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [showPreview, previewImage, images]);
+  }, [showPreview, previewImage, images, navigatePreview]);
 
   return (
     <>
@@ -465,7 +461,6 @@ export default function Home() {
                           fill
                           loading="lazy"
                           unoptimized
-                          onLoad={() => markImageLoaded(image.key)}
                         />
                       </div>
                       
@@ -558,9 +553,8 @@ export default function Home() {
                               alt={image.key}
                               width={80}
                               height={80}
-                              loading="lazy"
-                              unoptimized
-                              onLoad={() => markImageLoaded(image.key)}
+                                                              loading="lazy"
+                                unoptimized
                             />
                           </div>
                           <div className="ml-4 flex-1">
