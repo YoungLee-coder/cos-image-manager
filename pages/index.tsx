@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Image from 'next/image';
-import { Upload, Trash2, Copy, LogOut, RefreshCw, Image as ImageIcon, Edit3, Settings, Save, X } from 'lucide-react';
+import { Upload, Trash2, Copy, LogOut, RefreshCw, Image as ImageIcon, Edit3, Settings, Save, X, Grid3X3, List, MoreVertical, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface ImageFile {
   key: string;
@@ -17,6 +17,8 @@ interface Settings {
   useCustomDomain: boolean;
 }
 
+type ViewMode = 'grid' | 'list';
+
 export default function Home() {
   const [images, setImages] = useState<ImageFile[]>([]);
   const [loading, setLoading] = useState(false);
@@ -27,6 +29,10 @@ export default function Home() {
   const [newFileName, setNewFileName] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState<Settings>({ customDomain: '', useCustomDomain: false });
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [previewImage, setPreviewImage] = useState<ImageFile | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [loadedImages, setLoadedImages] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
@@ -249,6 +255,66 @@ export default function Home() {
     return new Date(dateString).toLocaleString('zh-CN');
   };
 
+  // 生成缩略图URL - 使用腾讯云COS图片处理
+  const getThumbnailUrl = (originalUrl: string, size: number = 200) => {
+    // 腾讯云COS图片处理参数：
+    // imageMogr2/thumbnail/!{size}x{size}r/gravity/center/crop/{size}x{size}
+    // 这将生成指定尺寸的方形缩略图，大大减少流量
+    return `${originalUrl}?imageMogr2/thumbnail/!${size}x${size}r/gravity/center/crop/${size}x${size}`;
+  };
+
+  // 标记图片已加载
+  const markImageLoaded = (imageKey: string) => {
+    setLoadedImages(prev => new Set([...prev, imageKey]));
+  };
+
+  const openPreview = (image: ImageFile) => {
+    setPreviewImage(image);
+    setShowPreview(true);
+  };
+
+  const closePreview = () => {
+    setShowPreview(false);
+    setPreviewImage(null);
+  };
+
+  const navigatePreview = (direction: 'prev' | 'next') => {
+    if (!previewImage) return;
+    
+    const currentIndex = images.findIndex(img => img.key === previewImage.key);
+    let newIndex;
+    
+    if (direction === 'prev') {
+      newIndex = currentIndex > 0 ? currentIndex - 1 : images.length - 1;
+    } else {
+      newIndex = currentIndex < images.length - 1 ? currentIndex + 1 : 0;
+    }
+    
+    setPreviewImage(images[newIndex]);
+  };
+
+  // 键盘事件处理
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!showPreview) return;
+      
+      switch (event.key) {
+        case 'Escape':
+          closePreview();
+          break;
+        case 'ArrowLeft':
+          navigatePreview('prev');
+          break;
+        case 'ArrowRight':
+          navigatePreview('next');
+          break;
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [showPreview, previewImage, images]);
+
   return (
     <>
       <Head>
@@ -338,10 +404,39 @@ export default function Home() {
           {/* 图片列表 */}
           <div className="px-4 sm:px-0">
             <div className="bg-white shadow overflow-hidden sm:rounded-md">
-              <div className="px-4 py-5 sm:px-6">
-                <h3 className="text-lg leading-6 font-medium text-gray-900">
-                  图片列表 ({images.length} 张)
-                </h3>
+              <div className="px-4 py-5 sm:px-6 flex justify-between items-center">
+                <div>
+                  <h3 className="text-lg leading-6 font-medium text-gray-900">
+                    图片列表 ({images.length} 张)
+                  </h3>
+                  <p className="text-xs text-green-600 mt-1">
+                    💡 已启用缩略图优化，大幅减少流量消耗
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="flex border border-gray-300 rounded-md">
+                    <button
+                      onClick={() => setViewMode('grid')}
+                      className={`px-3 py-1 text-sm font-medium ${
+                        viewMode === 'grid'
+                          ? 'bg-blue-50 text-blue-700 border-blue-200'
+                          : 'text-gray-500 hover:text-gray-700'
+                      } rounded-l-md border-r border-gray-300`}
+                    >
+                      <Grid3X3 className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => setViewMode('list')}
+                      className={`px-3 py-1 text-sm font-medium ${
+                        viewMode === 'list'
+                          ? 'bg-blue-50 text-blue-700 border-blue-200'
+                          : 'text-gray-500 hover:text-gray-700'
+                      } rounded-r-md`}
+                    >
+                      <List className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
               </div>
               
               {loading ? (
@@ -354,20 +449,118 @@ export default function Home() {
                   <ImageIcon className="mx-auto h-12 w-12 text-gray-400" />
                   <div className="mt-2 text-sm text-gray-500">暂无图片</div>
                 </div>
+              ) : viewMode === 'grid' ? (
+                // 网格视图 (缩略图模式)
+                <div className="p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                  {images.map((image) => (
+                    <div key={image.key} className="group relative bg-white rounded-lg border border-gray-200 hover:shadow-md transition-shadow">
+                      <div 
+                        className="aspect-square relative overflow-hidden rounded-t-lg cursor-pointer"
+                        onClick={() => openPreview(image)}
+                      >
+                        <Image
+                          className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-200"
+                          src={getThumbnailUrl(image.url, 300)}
+                          alt={image.key}
+                          fill
+                          loading="lazy"
+                          unoptimized
+                          onLoad={() => markImageLoaded(image.key)}
+                        />
+                      </div>
+                      
+                      {/* 文件信息 */}
+                      <div className="p-2">
+                        {editingKey === image.key ? (
+                          <div className="flex items-center space-x-1">
+                            <input
+                              type="text"
+                              value={newFileName}
+                              onChange={(e) => setNewFileName(e.target.value)}
+                              className="text-xs font-medium text-gray-900 border border-gray-300 rounded px-1 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 w-full"
+                              onKeyPress={(e) => {
+                                if (e.key === 'Enter') {
+                                  handleRename(image.key, newFileName);
+                                } else if (e.key === 'Escape') {
+                                  cancelEdit();
+                                }
+                              }}
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => handleRename(image.key, newFileName)}
+                              className="p-1 text-green-600 hover:text-green-800"
+                            >
+                              <Save className="h-3 w-3" />
+                            </button>
+                            <button
+                              onClick={cancelEdit}
+                              className="p-1 text-gray-400 hover:text-gray-600"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="text-xs font-medium text-gray-900 truncate" title={image.key}>
+                            {image.key}
+                          </div>
+                        )}
+                        <div className="text-xs text-gray-500 mt-1">
+                          {formatFileSize(image.size)}
+                        </div>
+                      </div>
+
+                      {/* 操作按钮 - 悬停时显示 */}
+                      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex flex-col space-y-1">
+                          <button
+                            onClick={() => copyToClipboard(image.url)}
+                            className="p-1.5 bg-white/90 hover:bg-white rounded-md shadow-sm border border-gray-200"
+                            title="复制链接"
+                          >
+                            <Copy className="h-3 w-3 text-gray-600" />
+                          </button>
+                          <button
+                            onClick={() => startEdit(image.key)}
+                            disabled={editingKey !== null}
+                            className="p-1.5 bg-white/90 hover:bg-white rounded-md shadow-sm border border-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="重命名"
+                          >
+                            <Edit3 className="h-3 w-3 text-gray-600" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(image.key)}
+                            disabled={editingKey !== null}
+                            className="p-1.5 bg-white/90 hover:bg-white rounded-md shadow-sm border border-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="删除"
+                          >
+                            <Trash2 className="h-3 w-3 text-red-600" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               ) : (
+                // 列表视图
                 <ul className="divide-y divide-gray-200">
                   {images.map((image) => (
                     <li key={image.key} className="px-4 py-4 sm:px-6">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center">
-                          <div className="flex-shrink-0">
+                          <div 
+                            className="flex-shrink-0 cursor-pointer"
+                            onClick={() => openPreview(image)}
+                          >
                             <Image
-                              className="h-20 w-20 object-cover rounded-lg"
-                              src={image.url}
+                              className="h-20 w-20 object-cover rounded-lg hover:opacity-90 transition-opacity"
+                              src={getThumbnailUrl(image.url, 160)}
                               alt={image.key}
                               width={80}
                               height={80}
+                              loading="lazy"
                               unoptimized
+                              onLoad={() => markImageLoaded(image.key)}
                             />
                           </div>
                           <div className="ml-4 flex-1">
@@ -513,6 +706,99 @@ export default function Home() {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* 图片预览模态框 */}
+        {showPreview && previewImage && (
+          <div className="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center">
+            {/* 关闭按钮 */}
+            <button
+              onClick={closePreview}
+              className="absolute top-4 right-4 z-60 p-2 text-white hover:text-gray-300 transition-colors"
+            >
+              <X className="h-8 w-8" />
+            </button>
+
+            {/* 导航按钮 - 上一张 */}
+            {images.length > 1 && (
+              <button
+                onClick={() => navigatePreview('prev')}
+                className="absolute left-4 top-1/2 transform -translate-y-1/2 z-60 p-2 text-white hover:text-gray-300 transition-colors"
+              >
+                <ChevronLeft className="h-8 w-8" />
+              </button>
+            )}
+
+            {/* 导航按钮 - 下一张 */}
+            {images.length > 1 && (
+              <button
+                onClick={() => navigatePreview('next')}
+                className="absolute right-4 top-1/2 transform -translate-y-1/2 z-60 p-2 text-white hover:text-gray-300 transition-colors"
+              >
+                <ChevronRight className="h-8 w-8" />
+              </button>
+            )}
+
+            {/* 图片容器 */}
+            <div className="relative max-w-full max-h-full p-4">
+              <div className="relative max-w-screen-lg max-h-screen">
+                <Image
+                  src={previewImage.url}
+                  alt={previewImage.key}
+                  className="max-w-full max-h-full object-contain"
+                  width={1200}
+                  height={800}
+                  unoptimized
+                />
+              </div>
+              
+              {/* 图片信息 */}
+              <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white p-4 rounded-b-lg">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="text-lg font-medium truncate">{previewImage.key}</h3>
+                    <p className="text-sm text-gray-300 mt-1">
+                      {formatFileSize(previewImage.size)} • {formatDate(previewImage.lastModified)}
+                    </p>
+                  </div>
+                  <div className="flex space-x-2 ml-4">
+                    <button
+                      onClick={() => copyToClipboard(previewImage.url)}
+                      className="px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-md text-sm font-medium transition-colors"
+                    >
+                      复制链接
+                    </button>
+                    <button
+                      onClick={() => {
+                        startEdit(previewImage.key);
+                        closePreview();
+                      }}
+                      disabled={editingKey !== null}
+                      className="px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-md text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      重命名
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleDelete(previewImage.key);
+                        closePreview();
+                      }}
+                      disabled={editingKey !== null}
+                      className="px-3 py-1.5 bg-red-600/80 hover:bg-red-600 rounded-md text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      删除
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 点击背景关闭 */}
+            <div 
+              className="absolute inset-0 -z-10"
+              onClick={closePreview}
+            />
           </div>
         )}
       </div>
