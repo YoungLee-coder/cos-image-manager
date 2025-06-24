@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Image from 'next/image';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { ImageFile } from '../../types';
@@ -11,6 +11,8 @@ interface ImagePreviewProps {
 }
 
 export function ImagePreview({ image, images, isOpen, onClose }: ImagePreviewProps) {
+  const [imageLoading, setImageLoading] = useState(true);
+
   const navigatePreview = useCallback((direction: 'prev' | 'next') => {
     if (!image) return;
     
@@ -49,6 +51,11 @@ export function ImagePreview({ image, images, isOpen, onClose }: ImagePreviewPro
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, navigatePreview, onClose]);
 
+  // 当图片改变时重置加载状态
+  useEffect(() => {
+    setImageLoading(true);
+  }, [image?.key]);
+
   if (!isOpen || !image) return null;
 
   return (
@@ -82,13 +89,20 @@ export function ImagePreview({ image, images, isOpen, onClose }: ImagePreviewPro
 
         {/* 图片 */}
         <div className="relative max-w-full max-h-full">
+          {imageLoading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-800 rounded">
+              <div className="text-white">加载中...</div>
+            </div>
+          )}
           <Image
             src={image.url}
             alt={image.key}
             width={800}
             height={600}
             className="max-w-full max-h-full object-contain"
-            priority
+            loading="lazy"
+            onLoad={() => setImageLoading(false)}
+            onError={() => setImageLoading(false)}
           />
         </div>
 
